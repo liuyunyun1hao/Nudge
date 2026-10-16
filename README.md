@@ -9,7 +9,7 @@ RikkaHub ←127.0.0.1:8809→ Nudge APP → 数据采集 + 命令执行 + 闹钟
 
 ## 版本
 当前 **v0.3.15**（versionCode 15），APK 发布在 GitHub Releases：
-https://github.com/yuyu1838309000-cmd/Nudge/releases
+https://github.com/Nereviay/Nudge/releases
 
 ## UI 结构
 - **概览 Tab**：MCP 运行状态、自检、权限进度（使用情况/无障碍/通知监听）
@@ -77,7 +77,7 @@ app/src/main/java/com/nudge/app/
 1. 代码在 `/home/ubuntu/Nudge`，改完 git commit && push
 2. 服务器编译：`cd /home/ubuntu/Nudge && ./gradlew assembleDebug`（编译完 `./gradlew --stop` 关 daemon）
 3. 更新 GitHub Release 上传 APK（token 在 git remote URL 里）
-4. 小鱼从 Release 下载：https://github.com/yuyu1838309000-cmd/Nudge/releases
+4. 小鱼从 Release 下载：https://github.com/Nereviay/Nudge/releases
 
 ## 已知要点
 - 通知渠道声音在 Android 8+ 创建后锁死，所以铃声必须用前台服务直接播放，不能依赖渠道
