@@ -16,6 +16,9 @@ import org.json.JSONObject
 import org.json.JSONArray
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 
+/** 客户端没有声明 protocolVersion 时回的版本。 */
+private const val DEFAULT_PROTOCOL = "2025-06-18"
+
 class McpService : Service() {
 
     private lateinit var server: HttpServer
@@ -94,13 +97,29 @@ class HttpServer(private val port: Int, private val context: Context) {
             val path = parts[1]
 
             var contentLength = 0
+            var origin: String? = null
+            var acrh: String? = null
             while (true) {
                 val line = readLine(input) ?: break
                 if (line.isEmpty()) break
                 val lower = line.lowercase()
                 if (lower.startsWith("content-length:")) {
                     contentLength = line.substringAfter(":").trim().toIntOrNull() ?: 0
+                } else if (lower.startsWith("origin:")) {
+                    origin = line.substringAfter(":").trim()
+                } else if (lower.startsWith("access-control-request-headers:")) {
+                    acrh = line.substringAfter(":").trim()
                 }
+            }
+
+            // 浏览器预检：任何路径的 OPTIONS 都直接放行，不回业务内容。
+            if (method.uppercase() == "OPTIONS") {
+                val head = "HTTP/1.1 204 No Content\r\n" + corsHeaders(origin, acrh) +
+                        "Content-Length: 0\r\nConnection: close\r\n\r\n"
+                output.write(head.toByteArray(Charsets.UTF_8))
+                output.flush()
+                socket.close()
+                return
             }
 
             var body = ""
@@ -129,13 +148,37 @@ class HttpServer(private val port: Int, private val context: Context) {
 
             val (code, resp) = route(method, path, body)
             val respBytes = resp.toByteArray(Charsets.UTF_8)
-            val head = "HTTP/1.1 $code\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: ${respBytes.size}\r\nConnection: close\r\n\r\n"
+            val head = "HTTP/1.1 $code\r\nContent-Type: application/json; charset=utf-8\r\n" +
+                    corsHeaders(origin, acrh) +
+                    "Content-Length: ${respBytes.size}\r\nConnection: close\r\n\r\n"
             output.write(head.toByteArray(Charsets.UTF_8))
             output.write(respBytes)
             output.flush()
             socket.close()
         } catch (e: Exception) {
             Log.e("Nudge", "handle error: ${e.message}", e)
+        }
+    }
+
+    /**
+     * 让浏览器（SullyOS 等网页端）能直接调用本机 MCP。
+     * 原生客户端不看这些头，多出来也无害；回显 Origin 而不是写 *，
+     * 是为了同时兼容带 credentials 的请求。
+     */
+    private fun corsHeaders(origin: String?, requestHeaders: String?): String {
+        val allowOrigin = origin ?: "*"
+        val allowHeaders = requestHeaders ?: ("authorization, content-type, accept, " +
+                "mcp-session-id, mcp-protocol-version, last-event-id, x-requested-with")
+        return buildString {
+            append("Access-Control-Allow-Origin: ").append(allowOrigin).append("\r\n")
+            append("Access-Control-Allow-Credentials: true\r\n")
+            append("Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS\r\n")
+            append("Access-Control-Allow-Headers: ").append(allowHeaders).append("\r\n")
+            append("Access-Control-Expose-Headers: Mcp-Session-Id, MCP-Protocol-Version\r\n")
+            append("Access-Control-Allow-Private-Network: true\r\n")
+            append("Access-Control-Allow-Local-Network: true\r\n")
+            append("Access-Control-Max-Age: 86400\r\n")
+            append("Vary: Origin\r\n")
         }
     }
 
@@ -185,8 +228,12 @@ class HttpServer(private val port: Int, private val context: Context) {
                 val serverInfo = JSONObject()
                 serverInfo.put("name", "Nudge")
                 serverInfo.put("version", "0.3.14")
+                // 回显客户端声明的版本：旧客户端（2024-11-05）照旧能用，
+                // 新客户端（2025-03-26 及以后）也不会被老版本号拒之门外。
+                val requested = params.optString("protocolVersion", "")
+                val proto = if (requested.isBlank()) DEFAULT_PROTOCOL else requested
                 JSONObject().apply {
-                    put("protocolVersion", "2024-11-05")
+                    put("protocolVersion", proto)
                     put("capabilities", caps)
                     put("serverInfo", serverInfo)
                 }
